@@ -36,19 +36,22 @@ def run_signal_backtest_with_curve(
     df: pd.DataFrame,
     target_pos_at_close: np.ndarray,
     cost_bps_per_side: float = DEFAULT_COST_BPS,
-) -> tuple[pd.Series, int]:
-    """Return (equity_series_starting_at_1, n_trades) with zero lookahead (bar t signal -> bar t+1 open)."""
+) -> tuple[pd.Series, pd.Series, list[dict]]:
+    """Return (equity_series, pos_series, trade_list) with zero lookahead (bar t signal -> bar t+1 open)."""
     n = len(df)
     opens = df["open"].to_numpy(dtype=np.float64)
     closes = df["close"].to_numpy(dtype=np.float64)
+    timestamps = df.index
     cost_rate = cost_bps_per_side / 10_000.0
 
     equity_arr = np.empty(n, dtype=np.float64)
+    pos_arr = np.zeros(n, dtype=np.int8)
+    trades: list[dict] = []
     equity = 1.0
     pos = 0
     entry_price = 0.0
+    entry_time = timestamps[0]
     pending = 0
-    n_trades = 0
     equity_arr[0] = 1.0
 
     for t in range(n):
@@ -56,13 +59,25 @@ def run_signal_backtest_with_curve(
             exec_price = opens[t]
             if pos != 0:
                 gross = pos * (exec_price - entry_price) / entry_price
-                equity *= 1.0 + gross - 2.0 * cost_rate
-                n_trades += 1
+                net = gross - 2.0 * cost_rate
+                equity *= 1.0 + net
+                trades.append(
+                    {
+                        "entry_time": entry_time,
+                        "exit_time": timestamps[t],
+                        "side": pos,
+                        "entry_price": entry_price,
+                        "exit_price": exec_price,
+                        "net_ret": net,
+                    }
+                )
                 pos = 0
             if pending != 0:
                 pos = pending
                 entry_price = exec_price
+                entry_time = timestamps[t]
 
+        pos_arr[t] = pos
         if pos != 0:
             unreal = pos * (closes[t] - entry_price) / entry_price - cost_rate
             equity_arr[t] = equity * (1.0 + unreal)
@@ -72,14 +87,24 @@ def run_signal_backtest_with_curve(
         if t == n - 1:
             if pos != 0:
                 gross = pos * (closes[t] - entry_price) / entry_price
-                equity *= 1.0 + gross - 2.0 * cost_rate
+                net = gross - 2.0 * cost_rate
+                equity *= 1.0 + net
                 equity_arr[t] = equity
-                n_trades += 1
+                trades.append(
+                    {
+                        "entry_time": entry_time,
+                        "exit_time": timestamps[t],
+                        "side": pos,
+                        "entry_price": entry_price,
+                        "exit_price": closes[t],
+                        "net_ret": net,
+                    }
+                )
             break
 
         pending = int(target_pos_at_close[t])
 
-    return pd.Series(equity_arr, index=df.index), n_trades
+    return pd.Series(equity_arr, index=timestamps), pd.Series(pos_arr, index=timestamps), trades
 
 
 def walk_forward_eval(
@@ -91,21 +116,20 @@ def walk_forward_eval(
     min_train_trades: int,
     warmup_days: int = 10,
 ) -> dict:
-    """Run rolling Walk-Forward Optimization and return stitched OOS equity + metrics."""
+    """Run rolling Walk-Forward Optimization and return stitched OOS equity, positions, trades, and metrics."""
     unique_dates = np.array(sorted(pd.unique(df.index.date)))
     n_days = len(unique_dates)
     idx_dates = df.index.date
 
-    # Pre-slice date -> mask indices for speed
-    date_to_pos = {}
-    for d in unique_dates:
-        date_to_pos[d] = np.flatnonzero(idx_dates == d)
+    date_to_pos = {d: np.flatnonzero(idx_dates == d) for d in unique_dates}
 
     stitched_segments: list[pd.Series] = []
+    pos_segments: list[pd.Series] = []
+    price_segments: list[pd.Series] = []
     bh_segments: list[pd.Series] = []
+    all_trades: list[dict] = []
     fold_returns: list[float] = []
     fold_dates: list[pd.Timestamp] = []
-    total_trades = 0
     cum_eq = 1.0
     cum_bh = 1.0
 
@@ -143,22 +167,26 @@ def walk_forward_eval(
         sig_warm = signal_fn(warm_df, *best_params)
         sig_oos = sig_warm[-len(te_df) :]
 
-        eq_fold, n_tr = run_signal_backtest_with_curve(te_df, sig_oos)
+        eq_fold, pos_fold, fold_trades = run_signal_backtest_with_curve(te_df, sig_oos)
         bh_fold = te_df["close"] / te_df["open"].iloc[0]
 
         stitched_segments.append(eq_fold * cum_eq)
+        pos_segments.append(pos_fold)
+        price_segments.append(te_df["close"])
         bh_segments.append(bh_fold * cum_bh)
+        all_trades.extend(fold_trades)
 
         fold_ret = float(eq_fold.iloc[-1] - 1.0)
         fold_returns.append(fold_ret)
         fold_dates.append(te_df.index[0])
-        total_trades += n_tr
 
         cum_eq *= float(eq_fold.iloc[-1])
         cum_bh *= float(bh_fold.iloc[-1])
         start_i = end_i
 
     full_eq = pd.concat(stitched_segments)
+    full_pos = pd.concat(pos_segments)
+    full_price = pd.concat(price_segments)
     full_bh = pd.concat(bh_segments)
 
     daily_eq = full_eq.groupby(full_eq.index.date).last()
@@ -172,6 +200,9 @@ def walk_forward_eval(
 
     return {
         "equity": full_eq,
+        "positions": full_pos,
+        "price": full_price,
+        "trades": all_trades,
         "bh_equity": full_bh,
         "fold_dates": fold_dates,
         "total_return_pct": float((full_eq.iloc[-1] - 1.0) * 100.0),
@@ -182,7 +213,7 @@ def walk_forward_eval(
         "bh_max_dd_pct": bh_dd,
         "n_folds": len(fold_returns),
         "pct_pos_folds": float(np.mean([r > 0 for r in fold_returns]) * 100.0),
-        "n_trades": total_trades,
+        "n_trades": len(all_trades),
     }
 
 
@@ -265,6 +296,93 @@ def main() -> None:
     fig.savefig(out_png, dpi=150)
     plt.close(fig)
     print(f"\nSaved Walk-Forward plot to {out_png}")
+
+    # Plot 15-min H3 (4-Week WFO) price curve with Long/Short entries, exits, and position shading
+    plot_h3_wfo_trades(ref, OUTPUTS_DIR / "h3_wfo_trades.png")
+
+
+def plot_h3_wfo_trades(res: dict, out_path: Path) -> None:
+    """Plot 15-min H3 (4-Week WFO) AAPL price with Long/Short entry & exit markers and equity curve."""
+    price = res["price"]
+    pos = res["positions"]
+    eq = res["equity"]
+    bh = res["bh_equity"]
+    trades = res["trades"]
+    fold_dates = res["fold_dates"]
+
+    # Map timestamps to contiguous bar index for clean gap-free plotting, or use calendar dates
+    ts = price.index.tz_localize(None)
+
+    fig, (ax1, ax2) = plt.subplots(
+        2, 1, figsize=(15, 8.5), sharex=True, gridspec_kw={"height_ratios": [2.4, 1.2]}
+    )
+
+    ax1.plot(ts, price.to_numpy(), color="#222222", lw=1.1, label="AAPL 15-min Close")
+
+    # Shade active Long (green) and Short (red) holding periods
+    y_min, y_max = float(price.min()) * 0.98, float(price.max()) * 1.02
+    ax1.fill_between(ts, y_min, y_max, where=(pos.to_numpy() == 1), color="#2ca02c", alpha=0.12, label="In Long Position")
+    ax1.fill_between(ts, y_min, y_max, where=(pos.to_numpy() == -1), color="#d62728", alpha=0.12, label="In Short Position")
+    ax1.set_ylim(y_min, y_max)
+
+    # Plot trade entry and exit markers
+    l_in_t, l_in_p = [], []
+    s_in_t, s_in_p = [], []
+    win_ex_t, win_ex_p = [], []
+    loss_ex_t, loss_ex_p = [], []
+
+    for tr in trades:
+        et = tr["entry_time"].tz_localize(None)
+        xt = tr["exit_time"].tz_localize(None)
+        if tr["side"] == 1:
+            l_in_t.append(et)
+            l_in_p.append(tr["entry_price"])
+        else:
+            s_in_t.append(et)
+            s_in_p.append(tr["entry_price"])
+        if tr["net_ret"] > 0:
+            win_ex_t.append(xt)
+            win_ex_p.append(tr["exit_price"])
+        else:
+            loss_ex_t.append(xt)
+            loss_ex_p.append(tr["exit_price"])
+
+    if l_in_t:
+        ax1.scatter(l_in_t, l_in_p, marker="^", s=55, color="#00c853", edgecolor="black", lw=0.6, zorder=5, label=f"Long Entry ({len(l_in_t)})")
+    if s_in_t:
+        ax1.scatter(s_in_t, s_in_p, marker="v", s=55, color="#d50000", edgecolor="black", lw=0.6, zorder=5, label=f"Short Entry ({len(s_in_t)})")
+    if win_ex_t:
+        ax1.scatter(win_ex_t, win_ex_p, marker="o", s=34, color="#1e88e5", edgecolor="white", lw=0.5, zorder=6, label=f"Winning Exit ({len(win_ex_t)})")
+    if loss_ex_t:
+        ax1.scatter(loss_ex_t, loss_ex_p, marker="x", s=45, color="#ff6f00", lw=1.6, zorder=6, label=f"Losing Exit ({len(loss_ex_t)})")
+
+    for fd in fold_dates:
+        fdt = fd.tz_localize(None)
+        ax1.axvline(fdt, color="gray", ls=":", lw=0.7, alpha=0.5)
+        ax2.axvline(fdt, color="gray", ls=":", lw=0.7, alpha=0.5)
+
+    ax1.set_ylabel("AAPL Price ($)")
+    ax1.set_title(
+        f"15-Min H3 (4-Week WFO) — All {len(trades)} Out-of-Sample Trades "
+        f"(OOS Return: {res['total_return_pct']:+.2f}%, Sharpe: {res['sharpe']:.2f}, Max DD: {res['max_dd_pct']:.2f}%)"
+    )
+    ax1.legend(loc="upper left", ncol=3, fontsize=8.5)
+    ax1.grid(True, alpha=0.25)
+
+    # Bottom panel: Equity curve vs Buy & Hold
+    ax2.plot(ts, (eq.to_numpy() - 1.0) * 100.0, color="#1f77b4", lw=1.8, label="H3 (15m, 4w WFO)")
+    ax2.plot(ts, (bh.to_numpy() - 1.0) * 100.0, color="#444444", lw=1.5, ls="--", label="AAPL Buy & Hold")
+    ax2.axhline(0.0, color="black", lw=0.7, ls=":")
+    ax2.set_ylabel("Cumulative Return (%)")
+    ax2.set_xlabel("Date (dotted vertical lines = 4-week re-tuning boundaries)")
+    ax2.legend(loc="upper left", fontsize=9)
+    ax2.grid(True, alpha=0.25)
+    ax2.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    print(f"Saved H3 WFO trades plot to {out_path}")
 
 
 if __name__ == "__main__":

@@ -25,6 +25,7 @@ class FeatureConfig:
     kalman_q: float = 1e-4  # Process noise scale for Kalman filter
     kalman_r: float = 1e-2  # Measurement noise variance for Kalman filter
     reset_daily: bool = True  # Prevent overnight gaps from corrupting intraday derivatives
+    price_col: str = "close"  # Input price column for kinematics ("close" or "vwap")
 
 
 def _causal_ema(x: np.ndarray, span: int) -> np.ndarray:
@@ -227,11 +228,15 @@ def compute_kinematic_features(df: pd.DataFrame, cfg: FeatureConfig) -> pd.DataF
       - bar_in_day: 0-indexed bar counter within each trading date (for warmup masking)
     """
     close = df["close"].to_numpy(dtype=np.float64)
+    if cfg.price_col in df.columns:
+        sig_price = df[cfg.price_col].fillna(df["close"]).to_numpy(dtype=np.float64)
+    else:
+        sig_price = close
     high = df["high"].to_numpy(dtype=np.float64)
     low = df["low"].to_numpy(dtype=np.float64)
     volume = df["volume"].to_numpy(dtype=np.float64)
 
-    log_close = np.log(close)
+    log_close = np.log(sig_price)
     n = len(df)
 
     smooth_log = np.empty(n, dtype=np.float64)
