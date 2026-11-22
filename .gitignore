@@ -12,12 +12,6 @@ wheels/
 # Secrets & environment
 .env
 
-# Generated data and artifacts
-data/*.parquet
-outputs/*.png
-outputs/*.html
-outputs/*.csv
-
 # OS
 .DS_Store
 
