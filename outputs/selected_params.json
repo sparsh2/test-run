@@ -1,0 +1,37 @@
+{
+  "feature_config": {
+    "smoother": "linreg",
+    "smooth_window": 60,
+    "vel_lookback": 3,
+    "acc_lookback": 1,
+    "vol_window": 20,
+    "kalman_q": 0.0001,
+    "kalman_r": 0.01,
+    "reset_daily": true
+  },
+  "strategy_config": {
+    "vel_thresh": 3.5,
+    "acc_thresh": 0.6,
+    "exit_mode": "vel_cross",
+    "exit_vel_thresh": 0.0,
+    "exit_acc_thresh": 0.1,
+    "min_atr_bps": 0.0,
+    "min_rel_vol": 0.0,
+    "warmup_bars": 30,
+    "min_hold_bars": 3,
+    "stop_loss_bps": 40.0,
+    "take_profit_bps": 80.0,
+    "flatten_eod": true,
+    "eod_no_entry_time": "15:50:00",
+    "eod_flatten_time": "15:55:00",
+    "cost_bps_per_side": 1.5
+  },
+  "stability_summary": {
+    "center_sharpe": 1.52826121238575,
+    "mean_neighbor_sharpe": 0.5202396688068663,
+    "std_neighbor_sharpe": 1.1073889597167537,
+    "min_neighbor_sharpe": -1.4934970710775954,
+    "mean_neighbor_ret_pct": 1.1974178019303952,
+    "pct_positive_neighbors": 68.0
+  }
+}

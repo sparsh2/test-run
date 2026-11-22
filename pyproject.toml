@@ -7,7 +7,15 @@ authors = [
     { name = "Sparsh", email = "sarodesparsh@gmail.com" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "alpaca-py>=0.45.0",
+    "matplotlib>=3.11.2",
+    "numpy>=2.5.5",
+    "pandas>=3.1.1",
+    "pyarrow>=26.0.1",
+    "python-dotenv>=1.2.4",
+    "scipy>=1.18.1",
+]
 
 [project.scripts]
 test-trade = "test_trade:main"
