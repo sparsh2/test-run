@@ -8,6 +8,7 @@ For each rolling fold:
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 from typing import Callable
 
@@ -25,7 +26,7 @@ from src.explore_edge import (
     resample_rth_bars,
     run_signal_backtest,
 )
-from src.fetch_data import DEFAULT_OUTPUT_PATH, load_data
+from src.fetch_data import data_path_for_symbol, load_data
 from src.optimize import DEFAULT_COST_BPS
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -218,8 +219,13 @@ def walk_forward_eval(
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Walk-Forward Optimization backtest.")
+    parser.add_argument("--symbol", default="AAPL", help="Ticker symbol (default: AAPL)")
+    args = parser.parse_args()
+    sym = args.symbol.upper()
+
     OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
-    df_1m = load_data(DEFAULT_OUTPUT_PATH, rth_only=True)
+    df_1m = load_data(data_path_for_symbol(sym), rth_only=True)
     df_5m = resample_rth_bars(df_1m, "5min")
     df_15m = resample_rth_bars(df_1m, "15min")
 

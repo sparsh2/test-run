@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
@@ -22,6 +23,11 @@ EASTERN_TZ = "America/New_York"
 
 RTH_START = time(9, 30)
 RTH_END = time(15, 59)
+
+
+def data_path_for_symbol(symbol: str = SYMBOL) -> Path:
+    """Return the standard parquet path for a given ticker symbol."""
+    return PROJECT_ROOT / "data" / f"{symbol.lower()}_1min_18m.parquet"
 
 
 def load_credentials() -> tuple[str, str]:
@@ -180,10 +186,17 @@ def load_data(path: Path = DEFAULT_OUTPUT_PATH, rth_only: bool = False) -> pd.Da
 
 
 def main() -> None:
-    df = fetch_historical_bars()
-    DEFAULT_OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(DEFAULT_OUTPUT_PATH)
-    print(f"\nSaved {len(df):,} rows to {DEFAULT_OUTPUT_PATH}")
+    parser = argparse.ArgumentParser(description="Fetch 1-minute historical SIP bars from Alpaca.")
+    parser.add_argument("--symbol", default=SYMBOL, help="Ticker symbol (default: AAPL)")
+    parser.add_argument("--days", type=int, default=LOOKBACK_DAYS, help="Lookback days (default: 548)")
+    args = parser.parse_args()
+
+    sym = args.symbol.upper()
+    out_path = data_path_for_symbol(sym)
+    df = fetch_historical_bars(symbol=sym, lookback_days=args.days)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(out_path)
+    print(f"\nSaved {len(df):,} rows to {out_path}")
     audit_data(df)
 
 

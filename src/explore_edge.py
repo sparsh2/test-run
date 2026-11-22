@@ -10,6 +10,7 @@ with realistic execution friction (1.5 bps/side = 3.0 bps round-trip) and zero l
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
 from datetime import time
 from pathlib import Path
@@ -19,7 +20,7 @@ import pandas as pd
 
 from src.backtest import Trade, compute_metrics
 from src.features import FeatureConfig, compute_kinematic_features
-from src.fetch_data import DEFAULT_OUTPUT_PATH, load_data
+from src.fetch_data import data_path_for_symbol, load_data
 from src.optimize import DEFAULT_COST_BPS, split_chronological
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -307,7 +308,12 @@ def gen_h3_swing_trend_filter(
 
 
 def main() -> None:
-    df_1m = load_data(DEFAULT_OUTPUT_PATH, rth_only=True)
+    parser = argparse.ArgumentParser(description="Explore higher-TF and mean-reversion kinematic hypotheses.")
+    parser.add_argument("--symbol", default="AAPL", help="Ticker symbol (default: AAPL)")
+    args = parser.parse_args()
+    sym = args.symbol.upper()
+
+    df_1m = load_data(data_path_for_symbol(sym), rth_only=True)
     tr_1m, va_1m, te_1m = split_chronological(df_1m)
 
     # Precompute resampled splits

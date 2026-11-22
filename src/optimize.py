@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import itertools
 import json
 import time as pytime
@@ -17,7 +18,7 @@ import pandas as pd
 
 from src.backtest import BacktestResult, StrategyConfig, run_backtest
 from src.features import FeatureConfig, compute_kinematic_features
-from src.fetch_data import DEFAULT_OUTPUT_PATH, load_data
+from src.fetch_data import data_path_for_symbol, load_data
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 OUTPUTS_DIR = PROJECT_ROOT / "outputs"
@@ -640,11 +641,17 @@ def write_report(
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="1-minute kinematic grid search, validation, and OOS backtest.")
+    parser.add_argument("--symbol", default="AAPL", help="Ticker symbol (default: AAPL)")
+    args = parser.parse_args()
+    sym = args.symbol.upper()
+    data_path = data_path_for_symbol(sym)
+
     OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    print("Loading RTH 1-minute AAPL dataset...")
-    df_rth = load_data(DEFAULT_OUTPUT_PATH, rth_only=True)
-    df_full_session = load_data(DEFAULT_OUTPUT_PATH, rth_only=False)
+    print(f"Loading RTH 1-minute {sym} dataset from {data_path}...")
+    df_rth = load_data(data_path, rth_only=True)
+    df_full_session = load_data(data_path, rth_only=False)
 
     train_df, val_df, test_df = split_chronological(df_rth)
     split_info = {
