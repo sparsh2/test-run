@@ -79,8 +79,8 @@ def gen_peak_trough_signals(
     return target
 
 
-def plot_peak_trough_trades(res: dict, title_prefix: str, out_path: Path) -> None:
-    """Plot AAPL price with confirmed trough buys, peak sells, holding shading, and equity curve."""
+def plot_peak_trough_trades(res: dict, title_prefix: str, out_path: Path, symbol: str = "AAPL") -> None:
+    """Plot stock price with confirmed trough buys, peak sells, holding shading, and equity curve."""
     price = res["price"]
     pos = res["positions"]
     eq = res["equity"]
@@ -94,7 +94,7 @@ def plot_peak_trough_trades(res: dict, title_prefix: str, out_path: Path) -> Non
         2, 1, figsize=(15, 8.5), sharex=True, gridspec_kw={"height_ratios": [2.4, 1.2]}
     )
 
-    ax1.plot(ts, price.to_numpy(), color="#222222", lw=1.1, label="AAPL 15-min Close")
+    ax1.plot(ts, price.to_numpy(), color="#222222", lw=1.1, label=f"{symbol} 15-min Close")
 
     y_min, y_max = float(price.min()) * 0.98, float(price.max()) * 1.02
     ax1.fill_between(ts, y_min, y_max, where=(pos.to_numpy() == 1), color="#2ca02c", alpha=0.12, label="Long (Post-Trough)")
@@ -136,7 +136,7 @@ def plot_peak_trough_trades(res: dict, title_prefix: str, out_path: Path) -> Non
         ax1.axvline(fdt, color="gray", ls=":", lw=0.7, alpha=0.5)
         ax2.axvline(fdt, color="gray", ls=":", lw=0.7, alpha=0.5)
 
-    ax1.set_ylabel("AAPL Price ($)")
+    ax1.set_ylabel(f"{symbol} Price ($)")
     ax1.set_title(
         f"{title_prefix} — {len(trades)} Out-of-Sample Trades "
         f"(OOS Return: {res['total_return_pct']:+.2f}%, Sharpe: {res['sharpe']:.2f}, Max DD: {res['max_dd_pct']:.2f}%)"
@@ -145,7 +145,7 @@ def plot_peak_trough_trades(res: dict, title_prefix: str, out_path: Path) -> Non
     ax1.grid(True, alpha=0.25)
 
     ax2.plot(ts, (eq.to_numpy() - 1.0) * 100.0, color="#1f77b4", lw=1.8, label="Peak/Trough Strategy (WFO)")
-    ax2.plot(ts, (bh.to_numpy() - 1.0) * 100.0, color="#444444", lw=1.5, ls="--", label="AAPL Buy & Hold")
+    ax2.plot(ts, (bh.to_numpy() - 1.0) * 100.0, color="#444444", lw=1.5, ls="--", label=f"{symbol} Buy & Hold")
     ax2.axhline(0.0, color="black", lw=0.7, ls=":")
     ax2.set_ylabel("Cumulative Return (%)")
     ax2.set_xlabel("Date (dotted vertical lines = 4-week re-tuning boundaries)")
@@ -226,17 +226,30 @@ def main() -> None:
             f"MaxDD: {wfo['max_dd_pct']:6.2f}% (B&H {wfo['bh_max_dd_pct']:6.2f}%) | "
             f"Folds+: {wfo['pct_pos_folds']:4.0f}% ({wfo['n_folds']}) | Trades: {wfo['n_trades']:3d}"
         )
+        prefix = "" if sym == "AAPL" else f"{sym.lower()}_"
         if "Long/Cash" in label:
             plot_peak_trough_trades(
                 wfo,
-                title_prefix="15-Min Causal Peak & Trough Strategy (4-Week WFO, Long/Cash)",
-                out_path=OUTPUTS_DIR / "peak_trough_wfo_trades.png",
+                title_prefix=f"15-Min {sym} Causal Peak & Trough Strategy (4-Week WFO, Long/Cash)",
+                out_path=OUTPUTS_DIR / f"{prefix}peak_trough_wfo_trades.png",
+                symbol=sym,
             )
         else:
-            plot_zoomed_peak_trough(wfo, label="Peak/Trough (4w WFO, Long & Short)")
+            plot_peak_trough_trades(
+                wfo,
+                title_prefix=f"15-Min {sym} Causal Peak & Trough Strategy (4-Week WFO, Long & Short)",
+                out_path=OUTPUTS_DIR / f"{prefix}peak_trough_ls_wfo_trades.png",
+                symbol=sym,
+            )
+            plot_zoomed_peak_trough(wfo, label=f"{sym} Peak/Trough (4w WFO, Long & Short)", symbol=sym, prefix=prefix)
 
 
-def plot_zoomed_peak_trough(res: dict, label: str = "Peak/Trough (4w WFO)") -> list[Path]:
+def plot_zoomed_peak_trough(
+    res: dict,
+    label: str = "Peak/Trough (4w WFO)",
+    symbol: str = "AAPL",
+    prefix: str = "",
+) -> list[Path]:
     """Generate the same 3 zoomed shorter-period (~6-week) charts for side-by-side comparison."""
     price = res["price"]
     pos = res["positions"]
@@ -245,9 +258,9 @@ def plot_zoomed_peak_trough(res: dict, label: str = "Peak/Trough (4w WFO)") -> l
     trades = res["trades"]
 
     periods = [
-        ("pt_zoom_1_selloff.png", "2026-01-05", "2026-02-20", "Period 1: Winter Selloff & Rebound (Jan–Feb 2026)"),
-        ("pt_zoom_2_rally.png", "2026-06-22", "2026-08-07", "Period 2: Summer Rally & Volatility (Jun–Aug 2026)"),
-        ("pt_zoom_3_recent.png", "2026-10-05", "2026-11-20", "Period 3: Recent Choppy Market (Oct–Nov 2026)"),
+        (f"{prefix}pt_zoom_1_selloff.png", "2026-01-05", "2026-02-20", "Period 1: Winter (Jan–Feb 2026)"),
+        (f"{prefix}pt_zoom_2_rally.png", "2026-06-22", "2026-08-07", "Period 2: Summer (Jun–Aug 2026)"),
+        (f"{prefix}pt_zoom_3_recent.png", "2026-10-05", "2026-11-20", "Period 3: Recent (Oct–Nov 2026)"),
     ]
 
     saved: list[Path] = []
@@ -275,7 +288,7 @@ def plot_zoomed_peak_trough(res: dict, label: str = "Peak/Trough (4w WFO)") -> l
             2, 1, figsize=(14, 7.8), sharex=True, gridspec_kw={"height_ratios": [2.5, 1.1]}
         )
 
-        ax1.plot(ts, p_sub.to_numpy(), color="#111111", lw=1.3, label="AAPL 15-min Close")
+        ax1.plot(ts, p_sub.to_numpy(), color="#111111", lw=1.3, label=f"{symbol} 15-min Close")
 
         y_min = float(p_sub.min()) * 0.992
         y_max = float(p_sub.max()) * 1.008
@@ -306,7 +319,7 @@ def plot_zoomed_peak_trough(res: dict, label: str = "Peak/Trough (4w WFO)") -> l
                     labeled.add("X")
                     ax1.scatter(xt, tr["exit_price"], marker="x", s=55, color="#ff6f00", lw=1.8, zorder=7, label=lbl)
 
-        ax1.set_ylabel("AAPL Price ($)")
+        ax1.set_ylabel(f"{symbol} Price ($)")
         ax1.set_title(
             f"{label} — {title} | Window Return: {eq_rel.iloc[-1]:+.2f}% vs B&H {bh_rel.iloc[-1]:+.2f}%"
         )
@@ -314,7 +327,7 @@ def plot_zoomed_peak_trough(res: dict, label: str = "Peak/Trough (4w WFO)") -> l
         ax1.grid(True, alpha=0.25)
 
         ax2.plot(ts, eq_rel.to_numpy(), color="#1f77b4", lw=1.8, label=label)
-        ax2.plot(ts, bh_rel.to_numpy(), color="#444444", lw=1.5, ls="--", label="AAPL Buy & Hold")
+        ax2.plot(ts, bh_rel.to_numpy(), color="#444444", lw=1.5, ls="--", label=f"{symbol} Buy & Hold")
         ax2.axhline(0.0, color="black", lw=0.7, ls=":")
         ax2.set_ylabel("Window Return (%)")
         ax2.set_xlabel("Date")
