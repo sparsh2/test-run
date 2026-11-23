@@ -12,6 +12,9 @@ wheels/
 # Secrets & environment
 .env
 
+# Live local wallet state
+state/
+
 # OS
 .DS_Store
 

@@ -1,0 +1,13 @@
+{
+  "symbols": [
+    "TSLA"
+  ],
+  "mode": "signal_only",
+  "initial_cash_per_symbol": 10000.0,
+  "retrain_interval_days": 28,
+  "train_trading_days": 120,
+  "cost_bps_per_side": 1.5,
+  "notify_macos": true,
+  "dashboard_host": "127.0.0.1",
+  "dashboard_port": 8000
+}
